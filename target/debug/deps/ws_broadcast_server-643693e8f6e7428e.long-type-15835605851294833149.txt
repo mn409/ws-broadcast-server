@@ -1,0 +1,1 @@
+fn(WebSocketUpgrade, State<AppState>) -> impl Future<Output = impl IntoResponse> {ws_handler}: Handler<_, _>

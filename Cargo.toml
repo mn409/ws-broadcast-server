@@ -1,0 +1,11 @@
+[package]
+name = "ws-broadcast-server"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+axum = { version = "0.7", features = ["ws"] }
+tokio = { version = "1", features = ["full"] }
+futures-util = "0.3"
+tokio-tungstenite = "0.21"
+url = "2"
