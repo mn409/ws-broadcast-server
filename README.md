@@ -4,6 +4,12 @@ A simple CLI-based WebSocket broadcast server built in Rust using Axum.
 
 The server allows multiple clients to connect and exchange messages in real time. Any message sent by one client is broadcast to all connected clients.
 
+Project (this repo):
+https://github.com/mn409/ws-broadcast-server
+
+Original project idea:
+https://roadmap.sh/projects/broadcast-server
+
 ## Features
 
 - WebSocket server using Axum
