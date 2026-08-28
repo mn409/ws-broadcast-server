@@ -1,4 +1,4 @@
-# WebSocket Broadcast Server (Rust)
+# WebSocket Broadcast Server (Rust).
 
 A simple CLI-based WebSocket broadcast server built in Rust using Axum.
 
