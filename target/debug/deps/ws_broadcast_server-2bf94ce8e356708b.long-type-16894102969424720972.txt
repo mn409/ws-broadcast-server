@@ -1,2 +1,0 @@
-fn(WebSocketUpgrade, State<AppState>) -> impl futures_util::Future<Output = impl IntoResponse> {ws_handler}
-fn(WebSocketUpgrade, State<AppState>) -> impl futures_util::Future<Output = impl IntoResponse> {ws_handler}: Handler<_, _>
