@@ -9,6 +9,7 @@ use axum::{
 };
 
 use futures_util::{SinkExt, StreamExt};
+use sqlx::Row;
 
 pub async fn ws_handler(
     ws: WebSocketUpgrade,
@@ -18,8 +19,6 @@ pub async fn ws_handler(
 }
 
 pub async fn handle_socket(socket: WebSocket, state: AppState) {
-    println!("HANDLER STARTED");
-
     let (sender, mut receiver) = socket.split();
 
     {
@@ -27,37 +26,49 @@ pub async fn handle_socket(socket: WebSocket, state: AppState) {
         clients.push(sender);
     }
 
+    let mut user_id: Option<i32> = None;
+
     while let Some(result) = receiver.next().await {
         match result {
             Ok(msg) => {
-                println!("Received msg: {:?}", msg);
-
                 match msg.clone() {
                     Message::Text(text) => {
-                        println!("TEXT MESSAGE DETECTED: {}", text);
+                        if user_id.is_none() {
+                            let pool = &state.db;
 
+                            let row = sqlx::query(
+                                r#"
+                                INSERT INTO users (username)
+                                VALUES ($1)
+                                ON CONFLICT (username)
+                                DO UPDATE SET username = EXCLUDED.username
+                                RETURNING id
+                                "#
+                            )
+                            .bind(&text)
+                            .fetch_one(pool)
+                            .await;
+
+                            if let Ok(record) = row {
+                                let id: i32 = record.get("id");
+                                user_id = Some(id);
+                            }
+
+                            continue;
+                        }
+
+                        let uid = user_id.unwrap();
                         let pool = &state.db;
 
-                        let result =
-                            sqlx::query("INSERT INTO messages (content) VALUES ($1)")
-                                .bind(&text)
-                                .execute(pool)
-                                .await;
-
-                        match result {
-                            Ok(_) => {
-                                println!("INSERT SUCCESS");
-                            }
-
-                            Err(e) => {
-                                println!("DB INSERT ERROR: {:?}", e);
-                            }
-                        }
+                        let _ = sqlx::query(
+                            "INSERT INTO messages (user_id, content) VALUES ($1, $2)"
+                        )
+                        .bind(uid)
+                        .bind(&text)
+                        .execute(pool)
+                        .await;
                     }
-
-                    other => {
-                        println!("NOT TEXT MESSAGE: {:?}", other);
-                    }
+                    _ => continue,
                 }
 
                 let mut clients = state.clients.lock().await;
@@ -72,13 +83,7 @@ pub async fn handle_socket(socket: WebSocket, state: AppState) {
                     }
                 }
             }
-
-            Err(e) => {
-                println!("WEBSOCKET RECEIVE ERROR: {:?}", e);
-                break;
-            }
+            Err(_) => break,
         }
     }
-
-    println!("CLIENT DISCONNECTED");
 }
