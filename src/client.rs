@@ -25,6 +25,7 @@ pub async fn run_client() {
 
     while let Ok(Some(line)) = lines.next_line().await {
         if write.send(line.into()).await.is_err() {
+            println!("Failed to send");
             break;
         }
     }
