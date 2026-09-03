@@ -24,6 +24,7 @@ pub async fn handle_socket(socket: WebSocket, state: AppState) {
     {
         let mut clients = state.clients.lock().await;
         clients.push(sender);
+        println!("New client connected. Total clients: {}", clients.len());
     }
 
     let mut user_id: Option<i32> = None;
@@ -33,6 +34,9 @@ pub async fn handle_socket(socket: WebSocket, state: AppState) {
             Ok(msg) => {
                 match msg.clone() {
                     Message::Text(text) => {
+                        println!("Incoming text: {}", text);
+                        println!("Current user_id: {:?}", user_id);
+
                         if user_id.is_none() {
                             let pool = &state.db;
 
@@ -49,9 +53,15 @@ pub async fn handle_socket(socket: WebSocket, state: AppState) {
                             .fetch_one(pool)
                             .await;
 
-                            if let Ok(record) = row {
-                                let id: i32 = record.get("id");
-                                user_id = Some(id);
+                            match row {
+                                Ok(record) => {
+                                    let id: i32 = record.get("id");
+                                    user_id = Some(id);
+                                    println!("User registered with id: {}", id);
+                                }
+                                Err(e) => {
+                                    println!("USER INSERT ERROR: {:?}", e);
+                                }
                             }
 
                             continue;
@@ -60,13 +70,20 @@ pub async fn handle_socket(socket: WebSocket, state: AppState) {
                         let uid = user_id.unwrap();
                         let pool = &state.db;
 
-                        let _ = sqlx::query(
+                        println!("Inserting message for user_id: {}", uid);
+
+                        let result = sqlx::query(
                             "INSERT INTO messages (user_id, content) VALUES ($1, $2)"
                         )
                         .bind(uid)
                         .bind(&text)
                         .execute(pool)
                         .await;
+
+                        match result {
+                            Ok(_) => println!("Message inserted successfully"),
+                            Err(e) => println!("DB ERROR: {:?}", e),
+                        }
                     }
                     _ => continue,
                 }
@@ -77,13 +94,20 @@ pub async fn handle_socket(socket: WebSocket, state: AppState) {
 
                 while i < clients.len() {
                     if clients[i].send(msg.clone()).await.is_err() {
-                        let _ = clients.remove(i);
+                        println!("Removing disconnected client");
+                        clients.remove(i);
                     } else {
                         i += 1;
                     }
                 }
             }
-            Err(_) => break,
+
+            Err(e) => {
+                println!("WebSocket receive error: {:?}", e);
+                break;
+            }
         }
     }
+
+    println!("Client disconnected");
 }
