@@ -95,7 +95,7 @@ pub async fn handle_socket(socket: WebSocket, state: AppState) {
                 while i < clients.len() {
                     if clients[i].send(msg.clone()).await.is_err() {
                         println!("Removing disconnected client");
-                        clients.remove(i);
+                        let _ = clients.remove(i);
                     } else {
                         i += 1;
                     }

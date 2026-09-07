@@ -1,6 +1,7 @@
 use axum::{routing::get, Router};
 use crate::state::AppState;
-use crate::handlers::ws_handler;
+use crate::handlers::ws_handler::ws_handler;
+
 
 pub async fn run_server(state: AppState) {
     let app = Router::new()
