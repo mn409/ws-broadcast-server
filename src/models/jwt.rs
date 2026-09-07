@@ -1,16 +1,16 @@
 use serde::{Serialize, Deserialize};
+use jsonwebtoken::{encode, decode, Header, Validation, EncodingKey, DecodingKey};
 use std::time::{SystemTime, UNIX_EPOCH};
-use jsonwebtoken::{encode, decode, Header, EncodingKey, DecodingKey, Validation};
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Serialize, Deserialize)]
 pub struct Claims {
     pub sub: String,
     pub exp: usize,
 }
 
-pub fn generate_token(user_id: &str) -> Result<String, jsonwebtoken::errors::Error> {
-    let secret = std::env::var("JWT_SECRET").expect("JWT_SECRET missing");
+static SECRET: &[u8] = b"secret";
 
+pub fn generate_token(user_id: &str) -> Result<String, jsonwebtoken::errors::Error> {
     let exp = SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .unwrap()
@@ -21,21 +21,15 @@ pub fn generate_token(user_id: &str) -> Result<String, jsonwebtoken::errors::Err
         exp: exp as usize,
     };
 
-    encode(
-        &Header::default(),
-        &claims,
-        &EncodingKey::from_secret(secret.as_bytes()),
-    )
+    encode(&Header::default(), &claims, &EncodingKey::from_secret(SECRET))
 }
 
-pub fn verify_token(token: &str) -> Result<Claims, jsonwebtoken::errors::Error> {
-    let secret = std::env::var("JWT_SECRET").expect("JWT_SECRET missing");
-
-    let data = decode::<Claims>(
+pub fn verify_token(token: &str) -> Result<String, jsonwebtoken::errors::Error> {
+    let decoded = decode::<Claims>(
         token,
-        &DecodingKey::from_secret(secret.as_bytes()),
+        &DecodingKey::from_secret(SECRET),
         &Validation::default(),
     )?;
 
-    Ok(data.claims)
+    Ok(decoded.claims.sub)
 }

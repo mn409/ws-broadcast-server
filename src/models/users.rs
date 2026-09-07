@@ -1,124 +1,107 @@
-use crate::state::AppState;
 use axum::{
-    Json as AxumJson,
-    extract::{Json, State},
-    response::IntoResponse,
+    extract::State,
+    Json,
+    http::StatusCode,
 };
-use serde::Deserialize;
-
-use argon2::{
-    Argon2,
-    password_hash::{PasswordHash, PasswordHasher, PasswordVerifier, SaltString, rand_core::OsRng},
-};
+use axum::debug_handler;
+use serde::{Deserialize, Serialize};
+use std::sync::Arc;
 
 use sqlx::Row;
 
+use argon2::{
+    Argon2,
+    PasswordHasher,
+    PasswordVerifier,
+    password_hash::{SaltString, PasswordHash, rand_core::OsRng},
+};
+
+use crate::{
+    state::AppState,
+    models::jwt::generate_token,
+};
+
 #[derive(Deserialize)]
-pub struct SignupRequest {
+pub struct AuthPayload {
     pub username: String,
     pub password: String,
 }
 
-#[derive(Deserialize)]
-pub struct LoginRequest {
-    pub username: String,
-    pub password: String,
+#[derive(Serialize)]
+pub struct AuthResponse {
+    pub token: String,
 }
 
+#[debug_handler]
 pub async fn signup(
-    Json(payload): Json<SignupRequest>,
-    State(state): State<AppState>,
-) -> impl IntoResponse {
-    let username = payload.username;
-    let password = payload.password;
+    State(state): State<Arc<AppState>>,
+    Json(payload): Json<AuthPayload>,
+) -> Result<StatusCode, StatusCode> {
 
     let salt = SaltString::generate(&mut OsRng);
 
-    let argon2 = Argon2::default();
-
-    let password_hash = match argon2.hash_password(password.as_bytes(), &salt) {
-        Ok(hash) => hash.to_string(),
-        Err(_) => {
-            return AxumJson(serde_json::json!({
-                "error": "Failed to hash password"
-            }));
-        }
+    let hash = match Argon2::default().hash_password(payload.password.as_bytes(), &salt) {
+        Ok(h) => h.to_string(),
+        Err(_) => return Err(StatusCode::INTERNAL_SERVER_ERROR),
     };
 
-    let result = sqlx::query("INSERT INTO users (username, password_hash) VALUES ($1, $2)")
-        .bind(username.clone())
-        .bind(password_hash)
-        .execute(&state.db)
-        .await;
-
-    match result {
-        Ok(_) => AxumJson(serde_json::json!({
-            "message": "User created successfully"
-        })),
-        Err(_) => AxumJson(serde_json::json!({
-            "error": "Failed to create user (maybe username exists)"
-        })),
-    }
-}
-
-pub async fn login(
-    Json(payload): Json<LoginRequest>,
-    State(state): State<AppState>,
-) -> impl IntoResponse {
-
-    let username = payload.username;
-    let password = payload.password;
-
     let result = sqlx::query(
-        "SELECT id, password_hash FROM users WHERE username = $1"
+        "INSERT INTO users (username, password_hash) VALUES ($1, $2)"
     )
-    .bind(username.clone())
-    .fetch_one(&state.db)
+    .bind(payload.username)
+    .bind(hash)
+    .execute(&state.db)
     .await;
 
     match result {
-        Ok(row) => {
-
-            let user_id: i32 = row.get("id");
-            let password_hash: String = row.get("password_hash");
-
-            let parsed_hash = match PasswordHash::new(&password_hash) {
-                Ok(hash) => hash,
-                Err(_) => {
-                    return AxumJson(serde_json::json!({
-                        "error": "Server error"
-                    }));
-                }
-            };
-
-            match Argon2::default().verify_password(password.as_bytes(), &parsed_hash) {
-                Ok(_) => {
-
-                    use crate::models::jwt::generate_token;
-
-                    let token = match generate_token(&user_id.to_string()) {
-                        Ok(t) => t,
-                        Err(_) => {
-                            return AxumJson(serde_json::json!({
-                                "error": "Failed to generate token"
-                            }));
-                        }
-                    };
-
-                    AxumJson(serde_json::json!({
-                        "message": "Login successful",
-                        "token": token
-                    }))
-                }
-
-                Err(_) => AxumJson(serde_json::json!({
-                    "error": "Invalid username or password"
-                })),
-            }
-        }
-
-        Err(_) => AxumJson(serde_json::json!({
-            "error": "Invalid username or password"
-        })),
+        Ok(_) => Ok(StatusCode::CREATED),
+        Err(_) => Err(StatusCode::INTERNAL_SERVER_ERROR),
     }
+}
+
+#[debug_handler]
+pub async fn login(
+    State(state): State<Arc<AppState>>,
+    Json(payload): Json<AuthPayload>,
+) -> Result<Json<AuthResponse>, StatusCode> {
+
+    let row = match sqlx::query(
+        "SELECT id, password_hash FROM users WHERE username = $1"
+    )
+    .bind(&payload.username)
+    .fetch_one(&state.db)
+    .await
+    {
+        Ok(r) => r,
+        Err(_) => return Err(StatusCode::UNAUTHORIZED),
+    };
+
+    let user_id: i32 = match row.try_get("id") {
+        Ok(id) => id,
+        Err(_) => return Err(StatusCode::INTERNAL_SERVER_ERROR),
+    };
+
+    let password_hash: String = match row.try_get("password_hash") {
+        Ok(p) => p,
+        Err(_) => return Err(StatusCode::INTERNAL_SERVER_ERROR),
+    };
+
+    let parsed_hash = match PasswordHash::new(&password_hash) {
+        Ok(ph) => ph,
+        Err(_) => return Err(StatusCode::INTERNAL_SERVER_ERROR),
+    };
+
+    if Argon2::default()
+        .verify_password(payload.password.as_bytes(), &parsed_hash)
+        .is_err()
+    {
+        return Err(StatusCode::UNAUTHORIZED);
+    }
+
+    let token = match generate_token(&user_id.to_string()) {
+        Ok(t) => t,
+        Err(_) => return Err(StatusCode::INTERNAL_SERVER_ERROR),
+    };
+
+    Ok(Json(AuthResponse { token }))
 }

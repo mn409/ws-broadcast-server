@@ -1,10 +1,10 @@
 use axum::{
-    extract::{State, Request},
-    http::{StatusCode, header::AUTHORIZATION},
+    extract::{State, Query},
+    http::StatusCode,
     middleware::Next,
     response::Response,
 };
-use std::sync::Arc;
+use std::{collections::HashMap, sync::Arc};
 
 use crate::{
     state::AppState,
@@ -13,26 +13,21 @@ use crate::{
 
 pub async fn auth_middleware(
     State(_state): State<Arc<AppState>>,
-    mut req: Request,
+    Query(params): Query<HashMap<String, String>>,
+    mut request: axum::http::Request<axum::body::Body>,
     next: Next,
 ) -> Result<Response, StatusCode> {
-
-    let auth_header = match req.headers().get(AUTHORIZATION) {
-        Some(h) => h.to_str().map_err(|_| StatusCode::UNAUTHORIZED)?,
-        None => return Err(StatusCode::UNAUTHORIZED),
-    };
-
-    let token = match auth_header.strip_prefix("Bearer ") {
+    let token = match params.get("token") {
         Some(t) => t,
         None => return Err(StatusCode::UNAUTHORIZED),
     };
 
-    let claims = match verify_token(token) {
-        Ok(c) => c,
+    let user_id = match verify_token(token) {
+        Ok(id) => id,
         Err(_) => return Err(StatusCode::UNAUTHORIZED),
     };
 
-    req.extensions_mut().insert(claims.sub);
+    request.extensions_mut().insert(user_id);
 
-    Ok(next.run(req).await)
+    Ok(next.run(request).await)
 }
