@@ -1,33 +1,43 @@
 use axum::{
     routing::{get, post},
     Router,
+    middleware,
 };
-use std::net::SocketAddr;
-
-mod models {
-    pub mod users {
-        pub async fn signup() {}
-        pub async fn login() {}
-    }
-}
+use std::sync::Arc;
+use tokio::net::TcpListener;
 
 use crate::state::AppState;
 use crate::models::users::{signup, login};
 use crate::handlers::ws_handler::ws_handler;
+use crate::middleware::auth::auth_middleware;
 
-pub async fn run_server(state: AppState) {
-    let app = Router::new()
+pub async fn run(state: Arc<AppState>) {
+    let app = create_router(state.clone());
+
+    let addr = "127.0.0.1:3000";
+    let listener = match TcpListener::bind(addr).await {
+        Ok(l) => l,
+        Err(_) => return,
+    };
+
+    println!("server running on {}", addr);
+
+    if axum::serve(listener, app).await.is_err() {
+        return;
+    }
+}
+
+pub fn create_router(state: Arc<AppState>) -> Router {
+    let protected_routes = Router::new()
+        .route("/ws", get(ws_handler))
+        .layer(middleware::from_fn_with_state(
+            state.clone(),
+            auth_middleware,
+        ));
+
+    Router::new()
         .route("/signup", post(signup))
         .route("/login", post(login))
-        .route("/ws", get(ws_handler))
-        .with_state(state);
-
-    let addr = SocketAddr::from(([127, 0, 0, 1], 3000));
-
-    println!("Server running on http://{}", addr);
-
-    axum::Server::bind(&addr)
-        .serve(app.into_make_service())
-        .await
-        .unwrap();
+        .merge(protected_routes)
+        .with_state(state)
 }
