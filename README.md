@@ -112,7 +112,7 @@ ws-broadcast-server/
 Clone the repository and set up environment variables:
 
 ```bash
-git clone [https://github.com/mn409/ws-broadcast-server.git](https://github.com/mn409/ws-broadcast-server.git)
+git clone https://github.com/mn409/ws-broadcast-server.git
 cd ws-broadcast-server
 
 ```
